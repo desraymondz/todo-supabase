@@ -1,14 +1,16 @@
 "use client"
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+import { createClient } from '@/utils/supabase/client'
 
 // Types
 interface Todo {
   id: string;
-  taskName: string;
+  user_id: string;
+  task_name: string;
   status: string;
-  image?: File | null;
-  imageUrl?: string;
-  createdAt: Date;
+  image_url?: string;
+  created_at: string;
 }
 
 interface User {
@@ -17,33 +19,40 @@ interface User {
 
 // Mock data - replace with your actual data
 const mockUser: User = { email: "user@example.com" };
-const mockTodos: Todo[] = [
-  { 
-    id: "1", 
-    taskName: "Complete project proposal", 
-    status: "In Progress", 
-    createdAt: new Date('2024-01-15') 
-  },
-  { 
-    id: "2", 
-    taskName: "Review code changes", 
-    status: "Completed", 
-    createdAt: new Date('2024-01-14') 
-  },
-  { 
-    id: "3", 
-    taskName: "Update documentation", 
-    status: "Pending", 
-    createdAt: new Date('2024-01-13') 
-  },
-];
+const supabase = createClient();
+
+async function fetchAllData() {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching tasks:', error);
+    return [];
+  }
+
+  console.log('Fetched tasks:', data);
+
+  return data || [];
+}
 
 export default function Home() {
-  const [todos, setTodos] = useState<Todo[]>(mockTodos);
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [taskName, setTaskName] = useState<string>('');
   const [status, setStatus] = useState<string>('Pending');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const data = await fetchAllData();
+      console.log('Fetched todos:', data);
+      setTodos(data);
+    };
+
+    fetchData();
+  }, []);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -57,19 +66,48 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!taskName.trim()) return;
 
-    const newTodo: Todo = {
-      id: Date.now().toString(),
-      taskName: taskName.trim(),
-      status,
-      image: selectedImage,
-      imageUrl: imagePreview || undefined,
-      createdAt: new Date(),
-    };
+    // First, if there's an image, upload it to Supabase storage
+    let image_url = undefined;
+    if (selectedImage) {
+      const fileExt = selectedImage.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('todo-images')
+        .upload(fileName, selectedImage);
 
-    setTodos(prev => [newTodo, ...prev]);
+      if (uploadError) {
+        console.error('Error uploading image:', uploadError);
+        return;
+      }
+
+      if (uploadData) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('todo-images')
+          .getPublicUrl(uploadData.path);
+        image_url = publicUrl;
+      }
+    }
+
+    // Then create the task
+    const { error } = await supabase
+      .from('tasks')
+      .insert({
+        task_name: taskName.trim(),
+        status: status,
+        image_url: image_url
+      })
+
+    if (error) {
+      console.error('Error creating task:', error);
+      return;
+    }
+
+    // Fetch the updated list of tasks
+    const updatedData = await fetchAllData();
+    setTodos(updatedData);
     
     // Reset form
     setTaskName('');
@@ -201,16 +239,16 @@ export default function Home() {
                 todos.map((todo) => (
                   <div key={todo.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-3">
-                      <h3 className="font-semibold text-gray-900 flex-1">{todo.taskName}</h3>
+                      <h3 className="font-semibold text-gray-900 flex-1">{todo.task_name}</h3>
                       <span className={`text-xs font-medium px-2 py-1 rounded-full border ${getStatusColor(todo.status)}`}>
                         {todo.status}
                       </span>
                     </div>
                     
-                    {todo.imageUrl && (
+                    {todo.image_url && (
                       <div className="mb-3">
                         <img
-                          src={todo.imageUrl}
+                          src={todo.image_url}
                           alt="Task"
                           className="w-16 h-16 object-cover rounded-lg border border-gray-200"
                         />
@@ -218,7 +256,7 @@ export default function Home() {
                     )}
                     
                     <p className="text-sm text-gray-500">
-                      Created: {todo.createdAt.toLocaleDateString('en-US', { 
+                      Created: {new Date(todo.created_at).toLocaleDateString('en-US', { 
                         year: 'numeric', 
                         month: 'short', 
                         day: 'numeric' 
