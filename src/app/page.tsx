@@ -69,46 +69,58 @@ export default function Home() {
   const handleSubmit = async () => {
     if (!taskName.trim()) return;
 
-    // First, if there's an image, upload it to Supabase storage
-    let image_url = undefined;
+    let image_url: string | undefined;
+
+    // 1. Grab the current user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      console.error("User not logged in");
+      return;
+    }
+
+    // 2. Upload image (if any) under user’s folder
     if (selectedImage) {
       const fileExt = selectedImage.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `${user.id}/${Date.now()}.${fileExt}`;
+
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('todo-images')
-        .upload(fileName, selectedImage);
+        .upload(filePath, selectedImage);
 
       if (uploadError) {
-        console.error('Error uploading image:', uploadError);
+        console.error("Error uploading image:", uploadError);
         return;
       }
 
+      // 3. Get a public URL for the uploaded file
       if (uploadData) {
-        const { data: { publicUrl } } = supabase.storage
+        const { data } = supabase.storage
           .from('todo-images')
           .getPublicUrl(uploadData.path);
-        image_url = publicUrl;
+        image_url = data.publicUrl;
       }
     }
 
-    // Then create the task
+    console.log("user:", user);
+    // 4. Insert task record
     const { error } = await supabase
-      .from('tasks')
+      .from("tasks")
       .insert({
         task_name: taskName.trim(),
         status: status,
-        image_url: image_url
-      })
-
+        image_url: image_url,
+        user_id: user.id
+      });
+      
     if (error) {
-      console.error('Error creating task:', error);
+      console.error("Error creating task:", error);
       return;
     }
 
     // Fetch the updated list of tasks
     const updatedData = await fetchAllData();
     setTodos(updatedData);
-    
+
     // Reset form
     setTaskName('');
     setStatus('Pending');
@@ -132,7 +144,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-8">
-        
+
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to your Todo App</h1>
@@ -145,11 +157,11 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
+
           {/* Add Todo Form */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h2 className="text-2xl font-semibold text-gray-900 mb-6">Add New Task</h2>
-            
+
             <div className="space-y-6">
               {/* Task Name */}
               <div>
@@ -244,7 +256,7 @@ export default function Home() {
                         {todo.status}
                       </span>
                     </div>
-                    
+
                     {todo.image_url && (
                       <div className="mb-3">
                         <img
@@ -254,12 +266,12 @@ export default function Home() {
                         />
                       </div>
                     )}
-                    
+
                     <p className="text-sm text-gray-500">
-                      Created: {new Date(todo.created_at).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
+                      Created: {new Date(todo.created_at).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
                       })}
                     </p>
                   </div>
