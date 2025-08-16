@@ -13,12 +13,7 @@ interface Todo {
   created_at: string;
 }
 
-interface User {
-  email: string;
-}
-
-// Mock data - replace with your actual data
-const mockUser: User = { email: "user@example.com" };
+import type { User } from '@supabase/supabase-js';
 const supabase = createClient();
 
 async function fetchAllData() {
@@ -39,19 +34,35 @@ async function fetchAllData() {
 
 export default function Home() {
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [user, setUser] = useState<User | null>(null);
   const [taskName, setTaskName] = useState<string>('');
   const [status, setStatus] = useState<string>('Pending');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
 
   useEffect(() => {
-    const fetchData = async () => {
-      const data = await fetchAllData();
-      console.log('Fetched todos:', data);
-      setTodos(data);
-    };
+    // Using IIFE (Immediately Invoked Function Expression) for async code
+    (async () => {
+      try {
+        // Grab the current user
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          console.error("User not logged in");
+          return;
+        }
 
-    fetchData();
+        // Store user data
+        setUser(user);
+
+        // Fetch todos for the current user
+        const data = await fetchAllData();
+        console.log('Fetched user:', user);
+        console.log('Fetched todos:', data);
+        setTodos(data);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      }
+    })();
   }, []);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,17 +79,14 @@ export default function Home() {
 
   const handleSubmit = async () => {
     if (!taskName.trim()) return;
-
-    let image_url: string | undefined;
-
-    // 1. Grab the current user
-    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       console.error("User not logged in");
       return;
     }
 
-    // 2. Upload image (if any) under user’s folder
+    let image_url: string | undefined;
+
+    // Upload image (if any) under user's folder
     if (selectedImage) {
       const fileExt = selectedImage.name.split('.').pop();
       const filePath = `${user.id}/${Date.now()}.${fileExt}`;
@@ -101,7 +109,6 @@ export default function Home() {
       }
     }
 
-    console.log("user:", user);
     // 4. Insert task record
     const { error } = await supabase
       .from("tasks")
@@ -151,7 +158,7 @@ export default function Home() {
           <p className="text-gray-600 mb-4">Manage your tasks efficiently and stay organized.</p>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-blue-800">
-              <span className="font-medium">Hello,</span> {mockUser.email}
+              <span className="font-medium">Hello,</span> {user?.email || 'Guest'}
             </p>
           </div>
         </div>
